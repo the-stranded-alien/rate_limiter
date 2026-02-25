@@ -26,18 +26,25 @@ class FixedWindowRateLimiter(RateLimiter):
     def __init__(self, max_requests: int, window_seconds: int = 60):
         super().__init__(max_requests, window_seconds)
         self._store: Dict[str, WindowState] = defaultdict(WindowState)
-        self._lock: threading.Lock = threading.Lock()
+        self._locks: Dict[str, threading.Lock] = {}
+        self._meta_lock: threading.Lock = threading.Lock()
+
+    def _get_key_lock(self, key: str) -> threading.Lock:
+        with self._meta_lock:
+            if key not in self._locks:
+                self._locks[key] = threading.Lock()
+            return self._locks[key]
 
     def _get_or_reset_window(self, key: str) -> WindowState:
         now = time.time()
         state = self._store[key]
         if now - state.window_start >= self.window_seconds:
-            state.count = 0
-            state.window_start = now
+            del self._store[key]          # evict stale entry
+            state = self._store[key]      # defaultdict creates fresh WindowState
         return state
 
     def is_allowed(self, key: str) -> RateLimitResult:
-        with self._lock:
+        with self._get_key_lock(key):
             state = self._get_or_reset_window(key)
             reset_at = state.window_start + self.window_seconds
             if state.count < self.max_requests:
@@ -52,14 +59,14 @@ class FixedWindowRateLimiter(RateLimiter):
                     allowed=False,
                     remaining=0,
                     reset_at=reset_at,
-                    retry_after=reset_at - time.time(),
+                    retry_after=max(0.0, reset_at - time.time()),
                 )
-    
+
     def reset(self, key: str) -> None:
-        with self._lock:
+        with self._get_key_lock(key):
             self._store[key] = WindowState()
 
     def get_remaining(self, key: str) -> int:
-        with self._lock:
+        with self._get_key_lock(key):
             state = self._get_or_reset_window(key)
             return max(0, self.max_requests - state.count)

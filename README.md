@@ -201,21 +201,24 @@ pytest tests -v --cov=algorithms --cov=rate_limiter
 | Category | Description |
 |----------|-------------|
 | `TestBasicBehavior` | Core functionality (allows, rejects, remaining, reset) |
-| `TestConcurrency` | Thread safety with 20+ concurrent threads |
-| `TestFixedWindowSpecific` | Fixed window reset behavior |
+| `TestConcurrency` | Thread safety with 20+ concurrent threads, per-key independence |
+| `TestFixedWindowSpecific` | Window reset, non-negative `retry_after`, stale key eviction |
 | `TestSlidingWindowSpecific` | Sliding window expiry and partial eviction |
 
 ## Thread Safety
 
-Both implementations are thread-safe and use `threading.Lock` to protect shared state. The concurrency tests verify that exactly `max_requests` are allowed even when 20 threads race simultaneously.
+Both implementations use **per-key locking**: a dedicated `threading.Lock` is created for each unique key, protected by a lightweight meta-lock at creation time. Requests for different keys run fully in parallel; only requests for the *same* key are serialized.
 
 ```python
-# Safe for concurrent use
+# Safe for concurrent use — different keys don't block each other
 limiter = SlidingWindowRateLimiter(max_requests=100, window_seconds=60)
 
-# Multiple threads can call is_allowed() concurrently
-result = limiter.is_allowed("shared_key")
+# These two calls can run concurrently
+result_a = limiter.is_allowed("user_a")
+result_b = limiter.is_allowed("user_b")
 ```
+
+The concurrency tests verify that exactly `max_requests` are allowed even when 20 threads race on the same key, and that each key gets its full independent quota when multiple keys run concurrently.
 
 ## When to Use Which Algorithm
 

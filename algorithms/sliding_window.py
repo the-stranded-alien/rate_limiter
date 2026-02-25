@@ -20,7 +20,14 @@ class SlidingWindowRateLimiter(RateLimiter):
     def __init__(self, max_requests: int, window_seconds: int = 60):
         super().__init__(max_requests, window_seconds)
         self._store: Dict[str, Deque[float]] = defaultdict(deque)
-        self._lock: threading.Lock = threading.Lock()
+        self._locks: Dict[str, threading.Lock] = {}
+        self._meta_lock: threading.Lock = threading.Lock()
+
+    def _get_key_lock(self, key: str) -> threading.Lock:
+        with self._meta_lock:
+            if key not in self._locks:
+                self._locks[key] = threading.Lock()
+            return self._locks[key]
 
     def _evict_expired(self, timestamps: Deque[float], now: float) -> None:
         """Remove timestamps outside the current window. Deque is sorted oldest→newest."""
@@ -29,7 +36,7 @@ class SlidingWindowRateLimiter(RateLimiter):
             timestamps.popleft()
 
     def is_allowed(self, key: str) -> RateLimitResult:
-        with self._lock:
+        with self._get_key_lock(key):
             now = time.time()
             timestamps = self._store[key]
             self._evict_expired(timestamps, now)
@@ -54,11 +61,11 @@ class SlidingWindowRateLimiter(RateLimiter):
                 )
 
     def reset(self, key: str) -> None:
-        with self._lock:
+        with self._get_key_lock(key):
             self._store[key] = deque()
 
     def get_remaining(self, key: str) -> int:
-        with self._lock:
+        with self._get_key_lock(key):
             now = time.time()
             timestamps = self._store[key]
             self._evict_expired(timestamps, now)

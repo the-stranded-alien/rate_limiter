@@ -142,6 +142,26 @@ class TestFixedWindowSpecific:
         assert result.allowed
         assert result.remaining == 2   # 3 - 1 = 2 remaining
 
+    def test_retry_after_is_non_negative(self):
+        """retry_after must never be negative (clamped to 0)."""
+        limiter = FixedWindowRateLimiter(max_requests=1, window_seconds=1)
+        limiter.is_allowed("ra_user")
+        result = limiter.is_allowed("ra_user")
+        assert result.retry_after is not None
+        assert result.retry_after >= 0
+
+    def test_stale_key_eviction_resets_state(self):
+        """WindowState for an expired window is replaced, not mutated in place."""
+        limiter = FixedWindowRateLimiter(max_requests=3, window_seconds=1)
+        for _ in range(3):
+            limiter.is_allowed("evict_user")
+        time.sleep(1.1)
+        # After expiry the old WindowState should be evicted and replaced
+        old_store_id = id(limiter._store.get("evict_user"))
+        limiter.is_allowed("evict_user")
+        new_store_id = id(limiter._store.get("evict_user"))
+        assert old_store_id != new_store_id, "Stale WindowState should have been evicted"
+
 class TestSlidingWindowSpecific:
     def test_window_slides_and_refills(self):
         """Old requests should expire and free up slots in the sliding window."""
