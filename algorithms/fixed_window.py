@@ -12,6 +12,16 @@ class WindowState:
     window_start: float = field(default_factory=time.time)
 
 class FixedWindowRateLimiter(RateLimiter):
+    """
+    Fixed Window Rate Limiter.
+
+    Divides time into fixed windows of `window_seconds` each.
+    Counts requests per key within the current window.
+    Resets count at the start of each new window.
+
+    Pros:  Simple, O(1) memory per key
+    Cons:  Allows up to 2x burst at window boundaries
+    """
 
     def __init__(self, max_requests: int, window_seconds: int = 60):
         super().__init__(max_requests, window_seconds)

@@ -7,10 +7,12 @@ from typing import Dict
 from algorithms.fixed_window import FixedWindowRateLimiter
 from algorithms.sliding_window import SlidingWindowRateLimiter
 
-@pytest.fixture(params=["fixed_window"])
+@pytest.fixture(params=["fixed_window", "sliding_window"])
 def limiter(request):
     if request.param == "fixed_window":
-        return FixedWindowRateLimiter(max_requests=10, window_seconds=60)
+        return FixedWindowRateLimiter(max_requests=5, window_seconds=60)
+    elif request.param == "sliding_window":
+        return SlidingWindowRateLimiter(max_requests=5, window_seconds=60)
     else:
         raise ValueError(f"Invalid limiter type: {request.param}")
 
@@ -139,3 +141,34 @@ class TestFixedWindowSpecific:
         result = limiter.is_allowed("fw_user")
         assert result.allowed
         assert result.remaining == 2   # 3 - 1 = 2 remaining
+
+class TestSlidingWindowSpecific:
+    def test_window_slides_and_refills(self):
+        """Old requests should expire and free up slots in the sliding window."""
+        limiter = SlidingWindowRateLimiter(max_requests=3, window_seconds=1)
+
+        for _ in range(3):
+            limiter.is_allowed("slide_user")
+
+        assert not limiter.is_allowed("slide_user").allowed
+
+        time.sleep(1.1)
+        assert limiter.is_allowed("slide_user").allowed
+
+    def test_partial_window_expiry(self):
+        """Only expired entries should be evicted; remaining budget is partial."""
+        limiter = SlidingWindowRateLimiter(max_requests=4, window_seconds=2)
+
+        limiter.is_allowed("partial")
+        limiter.is_allowed("partial")
+        time.sleep(1.1)
+        # 2 more — total in window = 4 (2 old still valid + 2 new)
+        limiter.is_allowed("partial")
+        limiter.is_allowed("partial")
+
+        # Should be rejected now
+        assert not limiter.is_allowed("partial").allowed
+
+        time.sleep(1.1)
+        # First 2 have expired — 2 slots open again
+        assert limiter.get_remaining("partial") == 2
