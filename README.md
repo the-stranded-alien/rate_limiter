@@ -226,6 +226,3 @@ result = limiter.is_allowed("shared_key")
 | Preventing burst abuse | Sliding Window |
 | Per-user request quotas | Either (depends on accuracy needs) |
 
-## License
-
-MIT License
